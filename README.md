@@ -1,2 +1,2 @@
 # tchat
-Terminal based chat app
+Terminal based chat app written in Go
