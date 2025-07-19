@@ -113,7 +113,7 @@ func loadConfig() map[string]interface{} {
 			// if doesnt exist, create default config file
 			defaultConfig := map[string]interface{}{
 				"server":   "localhost",
-				"port":     8080.0, // make sure its float64
+				"port":     9076.0, // make sure its float64
 				"username": "user",
 			}
 			file, err := os.Create(configFile)

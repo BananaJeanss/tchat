@@ -26,7 +26,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 		if err == io.EOF {
 			fmt.Println("Client disconnected:", conn.RemoteAddr())
 			clients.Delete(conn)
-			break
+			return
 		} else if err != nil {
 			fmt.Println("Error reading from client:", err)
 			return
@@ -34,7 +34,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 		if n == 0 {
 			fmt.Println("Client disconnected?:", conn.RemoteAddr())
 			clients.Delete(conn)
-			break
+			return
 		}
 
 		var jsonMsg map[string]string
@@ -48,6 +48,15 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 		}
 
 		if jsonMsg["type"] == "handshake" {
+			if jsonMsg["message"] != "OK" {
+				fmt.Println("Invalid handshake message:", jsonMsg["message"])
+				conn.Write([]byte("Invalid handshake message"))
+				continue
+			}
+
+			// TODO; issue a unique identifier, store with ip and user
+			// to prevent multiple people/ips using the same username
+
 			// Signal handshake completion
 			select {
 			case handshakeDone <- struct{}{}:
@@ -120,42 +129,68 @@ func sendHandshake(conn net.Conn) error {
 	return nil
 }
 
-func receiveHandshake(conn net.Conn) error {
-	// read the handshake message
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
+func loadConfig() map[string]interface{} {
+	const configFile = "server/config.json"
+	file, err := os.Open(configFile)
 	if err != nil {
-		return fmt.Errorf("error reading handshake message: %w", err)
+		if os.IsNotExist(err) {
+			fmt.Printf("Config file '%s' not found, creating one!\n", configFile)
+			// if doesnt exist, create default config file
+			defaultConfig := map[string]interface{}{
+				"port":       9076.0, // make sure its float64
+				"serverName": "an tchat server",
+			}
+			file, err := os.Create(configFile)
+			if err != nil {
+				fmt.Printf("Error creating config file: %v\n", err)
+				return nil
+			}
+			defer file.Close()
+			encoder := json.NewEncoder(file)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(defaultConfig); err != nil {
+				fmt.Printf("Error writing default config: %v\n", err)
+				return nil
+			}
+			fmt.Println("Default config created successfully.")
+			return defaultConfig
+		} else {
+			fmt.Printf("Error opening config file: %v\n", err)
+		}
+		return nil
 	}
+	defer file.Close()
 
-	if n == 0 {
-		return fmt.Errorf("no data received during handshake")
+	decoder := json.NewDecoder(file)
+	var config map[string]interface{}
+
+	if err := decoder.Decode(&config); err != nil {
+		fmt.Printf("Error decoding config file: %v\n", err)
+		return nil
 	}
-
-	var jsonMsg map[string]string
-	if err := json.Unmarshal(buffer[:n], &jsonMsg); err != nil {
-		return fmt.Errorf("error parsing handshake JSON: %w", err)
-	}
-
-	if jsonMsg["message"] != "HandshakeStart" {
-		return fmt.Errorf("invalid handshake message: %s", jsonMsg["message"])
-	}
-
-	fmt.Println("Handshake successful with user:", jsonMsg["user"])
-	return nil
+	return config
 }
-
 func main() {
+	// set process name
 	SetProcessName("tchat server")
 
-	listener, err := net.Listen("tcp", ":8080")
+	// load up server config
+	var serverConfig map[string]interface{} = loadConfig()
+
+	// start up a tcp server
+	port := 9076 // default port
+	if p, ok := serverConfig["port"].(float64); ok {
+		port = int(p)
+	}
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal("Error starting server:", err)
 	}
 	defer listener.Close()
+	fmt.Println("Chat server started on port", port)
 
-	fmt.Println("Chat server started on :8080")
-
+	// accept connections in a loop
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
