@@ -76,6 +76,18 @@ func addMessage(user string, msg string) {
 	}
 }
 
+func addServerMessage(msg string) {
+	// color the server message
+	msg = "\033[1;34m" + msg + "\033[0m" // red color
+
+	messages = append(messages, msg)
+
+	// keep only the messages that fit on screen
+	if len(messages) > maxMessages {
+		messages = messages[1:] // remove oldest message
+	}
+}
+
 func redrawMessages() {
 	_, height := getTerminalSize()
 
@@ -105,7 +117,7 @@ func clearLine() {
 }
 
 func loadConfig() map[string]interface{} {
-	const configFile = "config.json"
+	const configFile = "./config.json"
 	file, err := os.Open(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -205,7 +217,14 @@ func main() {
 
 			switch jsonMsg["type"] {
 			case "message":
-				addMessage(jsonMsg["user"], jsonMsg["message"])
+
+				// check if user or server
+				if jsonMsg["user"] == "server" {
+					addServerMessage(jsonMsg["message"])
+				} else {
+					addMessage(jsonMsg["user"], jsonMsg["message"])
+				}
+
 				redrawMessages()
 
 				// restore cursor to input line
@@ -256,6 +275,11 @@ func main() {
 
 		if scanner.Scan() {
 			message := scanner.Text()
+
+			if message == "" {
+				continue
+			}
+
 			sendMessage(conn, config["username"].(string), message)
 			redrawMessages()
 		}

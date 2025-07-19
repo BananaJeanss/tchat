@@ -23,18 +23,16 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	buffer := make([]byte, 1024)
 	for {
 		n, err := conn.Read(buffer)
-		if err == io.EOF {
-			fmt.Println("Client disconnected:", conn.RemoteAddr())
-			clients.Delete(conn)
-			return
-		} else if err != nil {
-			fmt.Println("Error reading from client:", err)
-			return
-		}
-		if n == 0 {
-			fmt.Println("Client disconnected?:", conn.RemoteAddr())
-			clients.Delete(conn)
-			return
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println("Client disconnected:", conn.RemoteAddr())
+				clients.Delete(conn)
+				return
+			} else if n == 0 {
+				fmt.Println("Client disconnected?:", conn.RemoteAddr())
+				clients.Delete(conn)
+				return
+			}
 		}
 
 		var jsonMsg map[string]string
@@ -65,10 +63,20 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			// Clear the read deadline after handshake
 			conn.SetReadDeadline(time.Time{})
 			fmt.Println("Handshake received from client:", jsonMsg["user"])
+			broadcastMessage(map[string]string{
+				"type":    "message",
+				"user":    "server",
+				"message": fmt.Sprintf("%s has joined the chat", jsonMsg["user"]),
+			})
 			continue
 		}
 
 		if jsonMsg["type"] == "message" {
+			// check if message is not empty
+			if jsonMsg["message"] == "" {
+				continue
+			}
+
 			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
 			broadcastMessage(jsonMsg)
 		} else {
@@ -130,7 +138,7 @@ func sendHandshake(conn net.Conn) error {
 }
 
 func loadConfig() map[string]interface{} {
-	const configFile = "server/config.json"
+	const configFile = "./config.json"
 	file, err := os.Open(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
