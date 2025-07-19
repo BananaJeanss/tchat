@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"strings"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/term"
 )
@@ -136,7 +138,22 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+func SetProcessName(name string) error {
+    argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
+    argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
+
+    n := copy(argv0, name)
+    if n < len(argv0) {
+            argv0[n] = 0
+    }
+
+    return nil
+}
+
 func main() {
+	// set window title
+	SetProcessName("tchat")
+
 	// load up config
 	var config map[string]interface{} = loadConfig()
 	fmt.Println("Logged in as", config["username"])

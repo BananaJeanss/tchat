@@ -5,7 +5,11 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"reflect"
+	"strings"
 	"sync"
+	"unsafe"
 )
 
 var clients sync.Map // store connected clients
@@ -33,7 +37,8 @@ func handleClient(conn net.Conn) {
 			clients.Delete(conn) // remove client from map
 			break // Client disconnected
 		}
-		fmt.Println("Received message:", string(buffer[:n]))
+
+		fmt.Println("Received message:", strings.TrimRight(string(buffer[:n]), "\n\r"))
 
 		broadcastMessage(string(buffer[:n]))
 	}
@@ -51,7 +56,22 @@ func broadcastMessage(message string) {
 	})
 }
 
+func SetProcessName(name string) error {
+    argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
+    argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
+
+    n := copy(argv0, name)
+    if n < len(argv0) {
+            argv0[n] = 0
+    }
+
+    return nil
+}
+
 func main() {
+	// set window title
+	SetProcessName("tchat server")
+
     // start TCP server
     listener, err := net.Listen("tcp", ":8080")
     if err != nil {
