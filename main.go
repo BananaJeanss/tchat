@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -44,8 +45,19 @@ func initChatArea() {
 	maxMessages = height - 4 // reserve space for header and input
 }
 
-func addMessage(msg string) {
-	messages = append(messages, msg)
+// sends messages to the server
+func sendMessage(conn net.Conn, user string, msg string) {
+	message := fmt.Sprintf("%s: %s", user, msg)
+	_, err := conn.Write([]byte(message + "\n"))
+	if err != nil {
+		fmt.Println("Error sending message:", err)
+	} else { // if successful, add locally
+		addMessage(user, msg)
+	}
+}
+
+func addMessage(user string, msg string) {
+	messages = append(messages, fmt.Sprintf("%s: %s", user, msg))
 
 	// keep only the messages that fit on screen
 	if len(messages) > maxMessages {
@@ -130,6 +142,14 @@ func main() {
 	var config map[string]interface{} = loadConfig()
 	fmt.Println("Logged in as", config["username"])
 
+	// connect to the telnet server
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", config["server"], int(config["port"].(float64))))
+	if err != nil {
+		fmt.Println("Error connecting to server:", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
 	// screen init
 	clearScreen()
 	_, height := getTerminalSize()
@@ -151,7 +171,7 @@ func main() {
 
 		if scanner.Scan() {
 			message := scanner.Text()
-			addMessage(message)
+			sendMessage(conn, config["username"].(string), message)
 			redrawMessages()
 		}
 	}
