@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/term"
 	"io"
 	"net"
 	"os"
@@ -12,8 +13,6 @@ import (
 	"runtime"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/term"
 )
 
 // clears the screen based on os
@@ -51,7 +50,7 @@ func initChatArea() {
 // sends messages to the server
 func sendMessage(conn net.Conn, user string, msg string) {
 	// format to json for consistency
-	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s"}`, user, msg)
+	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "message"}`, user, msg)
 	_, err := conn.Write([]byte(jsonMsg))
 	if err != nil {
 		fmt.Println("Error sending message:", err)
@@ -60,7 +59,16 @@ func sendMessage(conn net.Conn, user string, msg string) {
 }
 
 func addMessage(user string, msg string) {
-	messages = append(messages, fmt.Sprintf("%s: %s", user, msg))
+	// add @ prefix
+	displayUser := user
+	if user != "" && user[0] != '@' {
+		displayUser = "@" + user
+	}
+
+	// color username
+	displayUser = "\033[34m" + displayUser + "\033[0m" // blue color
+
+	messages = append(messages, fmt.Sprintf("%s: %s", displayUser, msg))
 
 	// keep only the messages that fit on screen
 	if len(messages) > maxMessages {
@@ -86,7 +94,7 @@ func redrawMessages() {
 	// draw messages from calculated starting position
 	for i, msg := range messages {
 		moveCursor(1, startLine+i)
-		fmt.Printf("\033[0;32m%s\033[0m", msg)
+		fmt.Println(msg)
 	}
 }
 
@@ -141,15 +149,15 @@ func loadConfig() map[string]interface{} {
 }
 
 func SetProcessName(name string) error {
-    argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
-    argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
+	argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
+	argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
 
-    n := copy(argv0, name)
-    if n < len(argv0) {
-            argv0[n] = 0
-    }
+	n := copy(argv0, name)
+	if n < len(argv0) {
+		argv0[n] = 0
+	}
 
-    return nil
+	return nil
 }
 
 func main() {
@@ -168,15 +176,6 @@ func main() {
 	}
 	defer conn.Close()
 
-	// screen init
-	clearScreen()
-	_, height := getTerminalSize()
-	fmt.Printf("--- tchat on %s:%d as %s ---\n",
-		config["server"],
-		int(config["port"].(float64)),
-		config["username"])
-	initChatArea()
-
 	// setup goroutine to handle incoming data
 	go func() {
 		buffer := make([]byte, 1024)
@@ -185,14 +184,16 @@ func main() {
 			if err != nil {
 				if err == io.EOF {
 					fmt.Println("Server disconnected.")
+					os.Exit(1)
 				} else {
 					fmt.Println("Error reading from server:", err)
+					os.Exit(1)
 				}
 				return
 			}
 			if n == 0 {
 				fmt.Println("Server disconnected")
-				continue // no data read
+				os.Exit(1)
 			}
 
 			// parse the incoming message
@@ -202,15 +203,46 @@ func main() {
 				return
 			}
 
-			addMessage(jsonMsg["user"], jsonMsg["message"])
-			redrawMessages()
+			switch jsonMsg["type"] {
+			case "message":
+				addMessage(jsonMsg["user"], jsonMsg["message"])
+				redrawMessages()
 
-			// restore cursor to input line
-			_, currentHeight := getTerminalSize()
-			moveCursor(1, currentHeight-1)
-			fmt.Print("Message: ")
+				// restore cursor to input line
+				_, currentHeight := getTerminalSize()
+				moveCursor(1, currentHeight-1)
+				fmt.Print("Message: ")
+			case "handshake":
+				// handle handshake
+				handshakeResp := map[string]string{
+					"type":    "handshake",
+					"user":    config["username"].(string),
+					"message": "OK",
+				}
+				jsonResp, err := json.Marshal(handshakeResp)
+				if err != nil {
+					fmt.Println("Error marshaling handshake response:", err)
+					return
+				}
+				_, err = conn.Write(jsonResp)
+				if err != nil {
+					fmt.Println("Error sending handshake response:", err)
+					return
+				}
+			default:
+				fmt.Println("Received unknown message type:", jsonMsg["type"])
+			}
 		}
 	}()
+
+	// screen init
+	clearScreen()
+	_, height := getTerminalSize()
+	fmt.Printf("--- tchat on %s:%d as %s ---\n",
+		config["server"],
+		int(config["port"].(float64)),
+		config["username"])
+	initChatArea()
 
 	// create a scanner that reads from stdin
 	scanner := bufio.NewScanner(os.Stdin)
