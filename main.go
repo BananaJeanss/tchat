@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"reflect"
 	"runtime"
-	"strings"
 	"syscall"
 	"unsafe"
 
@@ -50,10 +50,12 @@ func initChatArea() {
 
 // sends messages to the server
 func sendMessage(conn net.Conn, user string, msg string) {
-	message := fmt.Sprintf("%s: %s", user, msg)
-	_, err := conn.Write([]byte(message + "\n"))
+	// format to json for consistency
+	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s"}`, user, msg)
+	_, err := conn.Write([]byte(jsonMsg))
 	if err != nil {
 		fmt.Println("Error sending message:", err)
+		return
 	}
 }
 
@@ -181,21 +183,26 @@ func main() {
 		for {
 			n, err := conn.Read(buffer)
 			if err != nil {
-				fmt.Println("Error reading from server:", err)
+				if err == io.EOF {
+					fmt.Println("Server disconnected.")
+				} else {
+					fmt.Println("Error reading from server:", err)
+				}
 				return
 			}
 			if n == 0 {
 				fmt.Println("Server disconnected")
-				return
-			}
-			message := string(buffer[:n])
-			if message == "Message received" {
-				continue
+				continue // no data read
 			}
 
-			// remove newlines
-			message = strings.TrimSpace(message)
-			addMessage("", message)
+			// parse the incoming message
+			var jsonMsg map[string]string
+			if err := json.Unmarshal(buffer[:n], &jsonMsg); err != nil {
+				fmt.Println("Error parsing JSON:", err)
+				return
+			}
+
+			addMessage(jsonMsg["user"], jsonMsg["message"])
 			redrawMessages()
 
 			// restore cursor to input line

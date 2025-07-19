@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"reflect"
-	"strings"
 	"sync"
 	"unsafe"
 )
@@ -38,16 +38,28 @@ func handleClient(conn net.Conn) {
 			break // Client disconnected
 		}
 
-		fmt.Println("Received message:", strings.TrimRight(string(buffer[:n]), "\n\r"))
+		// expect messages in json format
+		var jsonMsg map[string]string
+		if err := json.Unmarshal(buffer[:n], &jsonMsg); err != nil {
+			fmt.Println("Error parsing JSON:", err)
+			return
+		} else {
+			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
+		}
 
-		broadcastMessage(string(buffer[:n]))
+		broadcastMessage(jsonMsg)
 	}
 }
 
-func broadcastMessage(message string) {
+func broadcastMessage(message map[string]string) {
 	clients.Range(func(key, value interface{}) bool {
 		conn := key.(net.Conn)
-		_, err := conn.Write([]byte(message))
+		jsonMsg, err := json.Marshal(message)
+		if err != nil {
+			log.Println("Error marshaling JSON:", err)
+			return false
+		}
+		_, err = conn.Write(jsonMsg)
 		if err != nil {
 			log.Println("Error sending message to client:", err)
 			return false // stop iteration if error occurs
