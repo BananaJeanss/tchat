@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"golang.org/x/term"
@@ -51,8 +52,6 @@ func sendMessage(conn net.Conn, user string, msg string) {
 	_, err := conn.Write([]byte(message + "\n"))
 	if err != nil {
 		fmt.Println("Error sending message:", err)
-	} else { // if successful, add locally
-		addMessage(user, msg)
 	}
 }
 
@@ -158,6 +157,36 @@ func main() {
 		int(config["port"].(float64)),
 		config["username"])
 	initChatArea()
+
+	// setup goroutine to handle incoming data
+	go func() {
+		buffer := make([]byte, 1024)
+		for {
+			n, err := conn.Read(buffer)
+			if err != nil {
+				fmt.Println("Error reading from server:", err)
+				return
+			}
+			if n == 0 {
+				fmt.Println("Server disconnected")
+				return
+			}
+			message := string(buffer[:n])
+			if message == "Message received" {
+				continue
+			}
+
+			// remove newlines
+			message = strings.TrimSpace(message)
+			addMessage("", message)
+			redrawMessages()
+
+			// restore cursor to input line
+			_, currentHeight := getTerminalSize()
+			moveCursor(1, currentHeight-1)
+			fmt.Print("Message: ")
+		}
+	}()
 
 	// create a scanner that reads from stdin
 	scanner := bufio.NewScanner(os.Stdin)
