@@ -12,10 +12,18 @@ import (
 	"reflect"
 	"runtime"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 var config map[string]interface{}
+
+// rate limit for messages
+var (
+	messageTimestamps []time.Time
+	rateLimitWindow   = 5 * time.Second // 5 seconds window
+	rateLimitCount    = 10              // 10 messages per 5 seconds
+)
 
 // valid ansi colors
 var ansiColors = map[string]string{
@@ -27,6 +35,14 @@ var ansiColors = map[string]string{
 	"magenta": "\033[35m",
 	"cyan":    "\033[36m",
 	"white":   "\033[37m",
+	"bold_black":   "\033[1;30m",
+	"bold_red":     "\033[1;31m",
+	"bold_green":   "\033[1;32m",
+	"bold_yellow":  "\033[1;33m",
+	"bold_blue":    "\033[1;34m",
+	"bold_purple":  "\033[1;35m",
+	"bold_cyan":    "\033[1;36m",
+	"bold_white":   "\033[1;37m",
 }
 
 // clears the screen based on os
@@ -60,6 +76,29 @@ var maxMessages int
 func initChatArea() {
 	_, height := getTerminalSize()
 	maxMessages = height - 4 // reserve space for header and input
+}
+
+func canSendMessage() bool {
+    now := time.Now()
+    cutoff := now.Add(-rateLimitWindow)
+
+    // remove old timestamps
+    i := 0
+    for ; i < len(messageTimestamps); i++ {
+        if messageTimestamps[i].After(cutoff) {
+            break
+        }
+    }
+    messageTimestamps = messageTimestamps[i:]
+
+    // check rate limit
+    if len(messageTimestamps) >= rateLimitCount {
+        return false
+    }
+
+    // append the current timestamp when sending
+    messageTimestamps = append(messageTimestamps, now)
+    return true
 }
 
 // sends messages to the server
@@ -107,10 +146,13 @@ func addMessage(user string, msg string, color string) {
 }
 
 // for messages sent from the server
-func addServerMessage(msg string) {
-	// color the server message
-	msg = "\033[1;34m" + msg + "\033[0m" // red color
-
+func addServerMessage(msg string, color ...string) {
+	// color the server message, color should always be bold
+	if len(color) > 0 && ansiColors[color[0]] != "" {
+		msg = ansiColors[color[0]] + msg + ansiColors["reset"]
+	} else {
+		msg = ansiColors["bold_blue"] + msg + ansiColors["reset"] // default to blue
+	}
 	messages = append(messages, msg)
 
 	// keep only the messages that fit on screen
@@ -325,6 +367,12 @@ func main() {
 			message := scanner.Text()
 
 			if message == "" {
+				continue
+			}
+
+			if !canSendMessage() {
+				addServerMessage("You are sending messages too fast, please wait a bit.", "bold_red")
+				redrawMessages()
 				continue
 			}
 
