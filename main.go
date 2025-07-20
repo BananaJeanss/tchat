@@ -17,6 +17,7 @@ import (
 
 var config map[string]interface{}
 
+// valid ansi colors
 var ansiColors = map[string]string{
 	"reset":   "\033[0m",
 	"red":     "\033[31m",
@@ -55,15 +56,16 @@ func moveCursor(x, y int) {
 var messages []string
 var maxMessages int
 
+// initializes the chat area based on terminal size
 func initChatArea() {
 	_, height := getTerminalSize()
 	maxMessages = height - 4 // reserve space for header and input
 }
 
 // sends messages to the server
-func sendMessage(conn net.Conn, user string, msg string) {
+func sendMessage(conn net.Conn, user string, msg string, color string) {
 	// format to json for consistency
-	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "message"}`, user, msg)
+	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "message", "color": "%s"}`, user, msg, color)
 	_, err := conn.Write([]byte(jsonMsg))
 	if err != nil {
 		fmt.Println("Error sending message:", err)
@@ -71,12 +73,27 @@ func sendMessage(conn net.Conn, user string, msg string) {
 	}
 }
 
-func addMessage(user string, msg string) {
+func validateAnsi(color string) string {
+	if ansiColors[color] != "" {
+		return ansiColors[color]
+	}
+	fmt.Println("Invalid color specified, using default (blue)")
+	return ansiColors["blue"] // default to blue if invalid
+}
+
+// for messages sent by other users
+func addMessage(user string, msg string, color string) {
 	// add @ prefix
 	displayUser := user
 	if user != "" && user[0] != '@' {
 		displayUser = "@" + user
 	}
+
+	// validate color
+	if color == "" || ansiColors[color] == "" {
+		color = "blue" // default to blue if color is invalid
+	}
+	displayUser = validateAnsi(color) + displayUser + ansiColors["reset"] // wrap username
 
 	// color username
 	displayUser = "\033[34m" + displayUser + "\033[0m" // blue color
@@ -89,6 +106,7 @@ func addMessage(user string, msg string) {
 	}
 }
 
+// for messages sent from the server
 func addServerMessage(msg string) {
 	// color the server message
 	msg = "\033[1;34m" + msg + "\033[0m" // red color
@@ -101,6 +119,7 @@ func addServerMessage(msg string) {
 	}
 }
 
+// redraws message area in terminal, should be called every time something changes
 func redrawMessages() {
 	_, height := getTerminalSize()
 
@@ -141,6 +160,7 @@ func clearLine() {
 	fmt.Print("\033[0G") // Move cursor to beginning of line
 }
 
+// loads the config from a file, if it doesn't exist, creates a default one
 func loadConfig() map[string]interface{} {
 	const configFile = "./config.json"
 	file, err := os.Open(configFile)
@@ -152,6 +172,7 @@ func loadConfig() map[string]interface{} {
 				"server":   "localhost",
 				"port":     9076.0, // make sure its float64
 				"username": "user",
+				"color":    "blue", // has to be an ansi color, otherwise server rejects + goes to default (blue)
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
@@ -185,6 +206,7 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+// sets process name for the terminal window
 func SetProcessName(name string) error {
 	argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
 	argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
@@ -197,6 +219,7 @@ func SetProcessName(name string) error {
 	return nil
 }
 
+// main process
 func main() {
 	// set window title
 	SetProcessName("tchat")
@@ -247,7 +270,7 @@ func main() {
 				if jsonMsg["user"] == "server" {
 					addServerMessage(jsonMsg["message"])
 				} else {
-					addMessage(jsonMsg["user"], jsonMsg["message"])
+					addMessage(jsonMsg["user"], jsonMsg["message"], jsonMsg["color"])
 				}
 
 				redrawMessages()
@@ -305,7 +328,7 @@ func main() {
 				continue
 			}
 
-			sendMessage(conn, config["username"].(string), message)
+			sendMessage(conn, config["username"].(string), message, config["color"].(string))
 			redrawMessages()
 		}
 	}

@@ -57,6 +57,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			return
 		}
 
+		// handshake process on new connection
 		if jsonMsg["type"] == "handshake" {
 			if jsonMsg["message"] != "OK" {
 				fmt.Println("Invalid handshake message:", jsonMsg["message"])
@@ -91,6 +92,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			continue
 		}
 
+		// when a user sends a message
 		if jsonMsg["type"] == "message" {
 			// check if message is not empty
 			if jsonMsg["message"] == "" {
@@ -128,7 +130,14 @@ func serverDmUser(message string) {
 		}
 		return true // continue iterating
 	})
+}
 
+func validateAnsi(color string) string {
+	if ansiColor, ok := ansiColors[color]; ok {
+		return ansiColor
+	}
+	fmt.Println("Invalid ANSI color:", color)
+	return ansiColors["blue"] // return blue color if invalid
 }
 
 func broadcastMessage(message map[string]string) {
@@ -139,6 +148,20 @@ func broadcastMessage(message map[string]string) {
 			log.Println("Error marshaling JSON:", err)
 			return false
 		}
+
+		// validate that the "color" field is a valid ANSI color
+		if color, ok := message["color"]; ok {
+			jsonMsg = []byte(fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "%s", "color": "%s"}`, message["user"], message["message"], message["type"], validateAnsi(color)))
+		} else {
+			jsonMsg = []byte(fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "%s", "color": "%s"}`, message["user"], message["message"], message["type"], ansiColors["reset"]))
+		}
+
+		jsonMsg, err = json.Marshal(message)
+		if err != nil {
+			log.Println("Error marshaling JSON:", err)
+			return false
+		}
+
 		_, err = conn.Write(jsonMsg)
 		if err != nil {
 			log.Println("Error sending message to client:", err)
