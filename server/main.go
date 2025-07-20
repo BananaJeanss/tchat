@@ -14,6 +14,18 @@ import (
 )
 
 var clients sync.Map // store connected clients
+var serverConfig map[string]interface{}
+
+var ansiColors = map[string]string{
+	"reset":   "\033[0m",
+	"red":     "\033[31m",
+	"green":   "\033[32m",
+	"yellow":  "\033[33m",
+	"blue":    "\033[34m",
+	"magenta": "\033[35m",
+	"cyan":    "\033[36m",
+	"white":   "\033[37m",
+}
 
 func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	defer conn.Close()
@@ -68,6 +80,14 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				"user":    "server",
 				"message": fmt.Sprintf("%s has joined the chat", jsonMsg["user"]),
 			})
+			var clientCount int
+			serverName := serverConfig["serverName"].(string)
+			clients.Range(func(key, value interface{}) bool{
+				clientCount++
+				return true
+			})
+			time.Sleep(100 * time.Millisecond)
+			serverDmUser(fmt.Sprintf("Welcome to %s, there are %d users online", serverName, clientCount))
 			continue
 		}
 
@@ -78,11 +98,37 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			}
 
 			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
+
 			broadcastMessage(jsonMsg)
+
 		} else {
 			fmt.Println("Received non-message type:", jsonMsg["type"])
 		}
 	}
+}
+
+func serverDmUser(message string) {
+	// send a direct message to a user
+	clients.Range(func(key, value interface{}) bool {
+		conn := key.(net.Conn)
+		jsonMsg := map[string]string{
+			"type":    "message",
+			"user":    "server",
+			"message": message,
+		}
+		jsonData, err := json.Marshal(jsonMsg)
+		if err != nil {
+			log.Println("Error marshaling JSON:", err)
+			return false // stop iteration if error occurs
+		}
+		_, err = conn.Write(jsonData)
+		if err != nil {
+			log.Println("Error sending message to client:", err)
+			return false // stop iteration if error occurs
+		}
+		return true // continue iterating
+	})
+
 }
 
 func broadcastMessage(message map[string]string) {
@@ -178,12 +224,13 @@ func loadConfig() map[string]interface{} {
 	}
 	return config
 }
+
 func main() {
 	// set process name
 	SetProcessName("tchat server")
 
 	// load up server config
-	var serverConfig map[string]interface{} = loadConfig()
+	serverConfig = loadConfig()
 
 	// start up a tcp server
 	port := 9076 // default port

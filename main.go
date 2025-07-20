@@ -15,6 +15,19 @@ import (
 	"unsafe"
 )
 
+var config map[string]interface{}
+
+var ansiColors = map[string]string{
+	"reset":   "\033[0m",
+	"red":     "\033[31m",
+	"green":   "\033[32m",
+	"yellow":  "\033[33m",
+	"blue":    "\033[34m",
+	"magenta": "\033[35m",
+	"cyan":    "\033[36m",
+	"white":   "\033[37m",
+}
+
 // clears the screen based on os
 func clearScreen() {
 	var cmd *exec.Cmd
@@ -92,9 +105,21 @@ func redrawMessages() {
 	_, height := getTerminalSize()
 
 	// Clear the message area (not the whole screen)
-	for i := 2; i < height-2; i++ {
+	for i := 0; i < height-2; i++ {
 		moveCursor(1, i)
 		fmt.Print("\033[K") // Clear this line
+	}
+
+	// move cursor to the top of the message area
+	moveCursor(1, 1)
+	// print header
+	if config == nil {
+		fmt.Print("\033[1;34m--- tchat (unconfigured) ---\033[0m\n")
+	} else {
+		fmt.Printf("\033[1;34m--- tchat on %s:%d as %s ---\033[0m\n",
+			config["server"],
+			int(config["port"].(float64)),
+			config["username"])
 	}
 
 	// calculate starting line for messages
@@ -177,7 +202,7 @@ func main() {
 	SetProcessName("tchat")
 
 	// load up config
-	var config map[string]interface{} = loadConfig()
+	config = loadConfig()
 	fmt.Println("Logged in as", config["username"])
 
 	// connect to the telnet server
@@ -257,7 +282,7 @@ func main() {
 	// screen init
 	clearScreen()
 	_, height := getTerminalSize()
-	fmt.Printf("--- tchat on %s:%d as %s ---\n",
+	fmt.Printf("\033[1;34m--- tchat on %s:%d as %s ---\033[0m\n",
 		config["server"],
 		int(config["port"].(float64)),
 		config["username"])
