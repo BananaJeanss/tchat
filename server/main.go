@@ -190,6 +190,7 @@ func sendHandshake(conn net.Conn) error {
 		"user":    "server",
 		"message": "HandshakeStart",
 		"type":    "handshake",
+		"serverName": serverConfig["serverName"].(string),
 	}
 
 	jsonMsg, err := json.Marshal(handshakeMsg)

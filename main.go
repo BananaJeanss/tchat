@@ -17,6 +17,7 @@ import (
 )
 
 var config map[string]interface{}
+var serverName string
 
 // rate limit for messages
 var (
@@ -177,7 +178,8 @@ func redrawMessages() {
 	if config == nil {
 		fmt.Print("\033[1;34m--- tchat (unconfigured) ---\033[0m\n")
 	} else {
-		fmt.Printf("\033[1;34m--- tchat on %s:%d as %s ---\033[0m\n",
+		fmt.Printf("\033[1;34m--- %s on %s:%d as %s ---\033[0m\n",
+			serverName,
 			config["server"],
 			int(config["port"].(float64)),
 			config["username"])
@@ -323,6 +325,8 @@ func main() {
 				fmt.Print("Message: ")
 			case "handshake":
 				// handle handshake
+				serverName = jsonMsg["serverName"]
+
 				handshakeResp := map[string]string{
 					"type":    "handshake",
 					"user":    config["username"].(string),
@@ -347,7 +351,8 @@ func main() {
 	// screen init
 	clearScreen()
 	_, height := getTerminalSize()
-	fmt.Printf("\033[1;34m--- tchat on %s:%d as %s ---\033[0m\n",
+	fmt.Printf("\033[1;34m--- %s on %s:%d as %s ---\033[0m\n",
+		"tchat",
 		config["server"],
 		int(config["port"].(float64)),
 		config["username"])
