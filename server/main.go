@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -50,15 +49,22 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			if err == io.EOF {
+			// handle general disconnects
+			if val, ok := clients.Load(conn); ok {
+				// get username from ClientInfo
+				client := val.(*ClientInfo)
+				fmt.Printf("Client disconnected: %s (%s)\n", client.Username, conn.RemoteAddr())
+				// broadcast that user has left
+				broadcastMessage(map[string]string{
+					"type":    "message",
+					"user":    "server",
+					"message": fmt.Sprintf("%s has left the chat", client.Username),
+				})
+			} else {
 				fmt.Println("Client disconnected:", conn.RemoteAddr())
-				clients.Delete(conn)
-				return
-			} else if n == 0 {
-				fmt.Println("Client disconnected?:", conn.RemoteAddr())
-				clients.Delete(conn)
-				return
 			}
+			clients.Delete(conn)
+			return
 		}
 
 		var jsonMsg map[string]string
@@ -141,7 +147,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				return true
 			})
 			time.Sleep(100 * time.Millisecond)
-			serverDmUser(fmt.Sprintf("Welcome to %s, there are %d users online", serverName, clientCount))
+			serverDmUser(fmt.Sprintf("Welcome to %s, there are %d users online", serverName, clientCount), jsonMsg["user"])
 			continue
 		}
 
@@ -169,24 +175,27 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	}
 }
 
-func serverDmUser(message string) {
+func serverDmUser(message string, user string) {
 	// send a direct message to a user
 	clients.Range(func(key, value interface{}) bool {
-		conn := key.(net.Conn)
-		jsonMsg := map[string]string{
-			"type":    "message",
-			"user":    "server",
-			"message": message,
-		}
-		jsonData, err := json.Marshal(jsonMsg)
-		if err != nil {
-			log.Println("Error marshaling JSON:", err)
-			return false // stop iteration if error occurs
-		}
-		_, err = conn.Write(jsonData)
-		if err != nil {
-			log.Println("Error sending message to client:", err)
-			return false // stop iteration if error occurs
+		client := value.(*ClientInfo)
+		if client.Username == user {
+			jsonMsg := map[string]string{
+				"type":    "message",
+				"user":    "server",
+				"message": message,
+			}
+			jsonData, err := json.Marshal(jsonMsg)
+			if err != nil {
+				log.Println("Error marshaling DM message:", err)
+				return false
+			}
+			_, err = client.Conn.Write(jsonData)
+			if err != nil {
+				log.Println("Error sending DM to user:", err)
+				return false
+			}
+			return false // stop iteration after sending DM
 		}
 		return true // continue iterating
 	})
