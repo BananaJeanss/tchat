@@ -152,6 +152,13 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				continue
 			}
 
+			// check if message exceeds character limit, if so, trim
+			charLimit := int(serverConfig["charLimit"].(float64))
+			if len(jsonMsg["message"]) > charLimit {
+				jsonMsg["message"] = jsonMsg["message"][:charLimit]
+				// message should already be displayed clientside
+			}
+
 			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
 
 			broadcastMessage(jsonMsg)
@@ -244,6 +251,7 @@ func sendHandshake(conn net.Conn) error {
 		"message":    "HandshakeStart",
 		"type":       "handshake",
 		"serverName": serverConfig["serverName"].(string),
+		"charLimit":  fmt.Sprintf("%d", int(serverConfig["charLimit"].(float64))),
 	}
 
 	jsonMsg, err := json.Marshal(handshakeMsg)
@@ -270,6 +278,7 @@ func loadConfig() map[string]interface{} {
 			defaultConfig := map[string]interface{}{
 				"port":       9076.0, // make sure its float64
 				"serverName": "an tchat server",
+				"charLimit":  180.0, // character limit for messages
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
@@ -302,12 +311,14 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+// server startup
 func main() {
-	// set process name
-	SetProcessName("tchat server")
 
 	// load up server config
 	serverConfig = loadConfig()
+
+	// set process name
+	SetProcessName(serverConfig["serverName"].(string))
 
 	// start up a tcp server
 	port := 9076 // default port

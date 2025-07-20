@@ -46,6 +46,8 @@ var ansiColors = map[string]string{
 	"bold_white":  "\033[1;37m",
 }
 
+var messageCharLimit = 180 // max characters per message
+
 // clears the screen based on os
 func clearScreen() {
 	var cmd *exec.Cmd
@@ -196,6 +198,11 @@ func redrawMessages() {
 		moveCursor(1, startLine+i)
 		fmt.Println(msg)
 	}
+
+	// clear line -2
+	moveCursor(1, height-2)
+	clearLine()
+
 }
 
 // clears the current cursor line in the terminal
@@ -332,6 +339,15 @@ func main() {
 			case "handshake":
 				// handle handshake
 				serverName = jsonMsg["serverName"]
+				// parse charLimit from string to int
+				if val, ok := jsonMsg["charLimit"]; ok {
+					var parsedLimit int
+					_, err := fmt.Sscanf(val, "%d", &parsedLimit)
+					if err == nil {
+						messageCharLimit = parsedLimit
+						
+					}
+				}
 
 				handshakeResp := map[string]string{
 					"type":    "handshake",
@@ -380,6 +396,13 @@ func main() {
 			if message == "" {
 				continue
 			}
+
+			if len(message) > messageCharLimit {
+				message = message[:messageCharLimit] // truncate message if too long
+				addServerMessage(fmt.Sprintf("Message too long, truncated to %d characters.", messageCharLimit), "bold_red")
+				redrawMessages()
+			}
+
 
 			if !canSendMessage() {
 				addServerMessage("You are sending messages too fast, please wait a bit.", "bold_red")
