@@ -28,22 +28,22 @@ var (
 
 // valid ansi colors
 var ansiColors = map[string]string{
-	"reset":   "\033[0m",
-	"red":     "\033[31m",
-	"green":   "\033[32m",
-	"yellow":  "\033[33m",
-	"blue":    "\033[34m",
-	"magenta": "\033[35m",
-	"cyan":    "\033[36m",
-	"white":   "\033[37m",
-	"bold_black":   "\033[1;30m",
-	"bold_red":     "\033[1;31m",
-	"bold_green":   "\033[1;32m",
-	"bold_yellow":  "\033[1;33m",
-	"bold_blue":    "\033[1;34m",
-	"bold_purple":  "\033[1;35m",
-	"bold_cyan":    "\033[1;36m",
-	"bold_white":   "\033[1;37m",
+	"reset":       "\033[0m",
+	"red":         "\033[31m",
+	"green":       "\033[32m",
+	"yellow":      "\033[33m",
+	"blue":        "\033[34m",
+	"magenta":     "\033[35m",
+	"cyan":        "\033[36m",
+	"white":       "\033[37m",
+	"bold_black":  "\033[1;30m",
+	"bold_red":    "\033[1;31m",
+	"bold_green":  "\033[1;32m",
+	"bold_yellow": "\033[1;33m",
+	"bold_blue":   "\033[1;34m",
+	"bold_purple": "\033[1;35m",
+	"bold_cyan":   "\033[1;36m",
+	"bold_white":  "\033[1;37m",
 }
 
 // clears the screen based on os
@@ -80,26 +80,26 @@ func initChatArea() {
 }
 
 func canSendMessage() bool {
-    now := time.Now()
-    cutoff := now.Add(-rateLimitWindow)
+	now := time.Now()
+	cutoff := now.Add(-rateLimitWindow)
 
-    // remove old timestamps
-    i := 0
-    for ; i < len(messageTimestamps); i++ {
-        if messageTimestamps[i].After(cutoff) {
-            break
-        }
-    }
-    messageTimestamps = messageTimestamps[i:]
+	// remove old timestamps
+	i := 0
+	for ; i < len(messageTimestamps); i++ {
+		if messageTimestamps[i].After(cutoff) {
+			break
+		}
+	}
+	messageTimestamps = messageTimestamps[i:]
 
-    // check rate limit
-    if len(messageTimestamps) >= rateLimitCount {
-        return false
-    }
+	// check rate limit
+	if len(messageTimestamps) >= rateLimitCount {
+		return false
+	}
 
-    // append the current timestamp when sending
-    messageTimestamps = append(messageTimestamps, now)
-    return true
+	// append the current timestamp when sending
+	messageTimestamps = append(messageTimestamps, now)
+	return true
 }
 
 // sends messages to the server
@@ -309,12 +309,15 @@ func main() {
 
 			switch jsonMsg["type"] {
 			case "message":
-
 				// check if user or server
 				if jsonMsg["user"] == "server" {
+					// no idea why this works tbh
+					if jsonMsg["message"] == "Username already in use" {
+						os.Stdout.Sync() // flush stdout
+						os.Exit(1)
+						break
+					}
 					addServerMessage(jsonMsg["message"])
-				} else {
-					addMessage(jsonMsg["user"], jsonMsg["message"], jsonMsg["color"])
 				}
 
 				redrawMessages()

@@ -13,7 +13,14 @@ import (
 	"unsafe"
 )
 
-var clients sync.Map // store connected clients
+type ClientInfo struct {
+	Conn     net.Conn
+	Username string
+	IP       string
+}
+
+// Change clients to store ClientInfo
+var clients sync.Map // key: net.Conn, value: *ClientInfo
 var serverConfig map[string]interface{}
 
 var ansiColors = map[string]string{
@@ -30,7 +37,14 @@ var ansiColors = map[string]string{
 func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	defer conn.Close()
 	fmt.Println("Client connected:", conn.RemoteAddr())
-	clients.Store(conn, true)
+
+	clientIP := conn.RemoteAddr().String()
+	clientInfo := &ClientInfo{
+		Conn:     conn,
+		Username: "", // Will be set after handshake
+		IP:       clientIP,
+	}
+	clients.Store(conn, clientInfo)
 
 	buffer := make([]byte, 1024)
 	for {
@@ -65,8 +79,47 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				continue
 			}
 
-			// TODO; issue a unique identifier, store with ip and user
-			// to prevent multiple people/ips using the same username
+			// check if empty username
+			if jsonMsg["user"] == "" {
+				fmt.Println("Empty username received, closing connection")
+				conn.Write([]byte("Empty username received"))
+				conn.Close()
+				return
+			}
+
+			// disallow "server" as username
+			if jsonMsg["user"] == "server" {
+				fmt.Println("Username 'server' is reserved, closing connection")
+				conn.Write([]byte("Username 'server' is reserved"))
+				clients.Delete(conn)
+				conn.Close()
+				return
+			}
+
+			// check if the username is already in use
+			var usernameInUse bool
+			clients.Range(func(key, value interface{}) bool {
+				client := value.(*ClientInfo)
+				if client.Username == jsonMsg["user"] {
+					usernameInUse = true
+					return false // stop iteration
+				}
+				return true // not in use, continue
+			})
+			if usernameInUse {
+				fmt.Println("Username already in use:", jsonMsg["user"])
+				conn.Write([]byte(`{
+					"type": "alreadyInUse",
+					"user": "server",
+					"message": "Username already in use"
+				}`))
+				clients.Delete(conn)
+				conn.Close()
+				return
+			}
+
+			// Set username after handshake
+			clientInfo.Username = jsonMsg["user"]
 
 			// Signal handshake completion
 			select {
@@ -83,7 +136,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			})
 			var clientCount int
 			serverName := serverConfig["serverName"].(string)
-			clients.Range(func(key, value interface{}) bool{
+			clients.Range(func(key, value interface{}) bool {
 				clientCount++
 				return true
 			})
@@ -187,9 +240,9 @@ func sendHandshake(conn net.Conn) error {
 	// Send a quick handshake message to validate the user
 	// this should expect the username and a message of OK
 	handshakeMsg := map[string]string{
-		"user":    "server",
-		"message": "HandshakeStart",
-		"type":    "handshake",
+		"user":       "server",
+		"message":    "HandshakeStart",
+		"type":       "handshake",
 		"serverName": serverConfig["serverName"].(string),
 	}
 
