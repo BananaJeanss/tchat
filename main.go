@@ -318,6 +318,9 @@ func main() {
 						break
 					}
 					addServerMessage(jsonMsg["message"])
+				} else {
+					// add user message
+					addMessage(jsonMsg["user"], jsonMsg["message"], jsonMsg["color"])
 				}
 
 				redrawMessages()
