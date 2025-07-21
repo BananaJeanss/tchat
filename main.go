@@ -21,6 +21,8 @@ import (
 var config map[string]interface{}
 var serverName string
 
+var lastPingTimestamp time.Time
+
 // rate limit for messages
 var (
 	messageTimestamps []time.Time
@@ -272,6 +274,25 @@ func clearMessages() {
 	redrawMessages()
 }
 
+func sendPing(conn net.Conn) {
+	pingMsg := map[string]string{
+		"type": "ping",
+		"user": config["username"].(string),
+	}
+	jsonPing, err := json.Marshal(pingMsg)
+	if err != nil {
+		fmt.Println("Error marshaling ping message:", err)
+		return
+	}
+	_, err = conn.Write(jsonPing)
+	if err != nil {
+		fmt.Println("Error sending ping message:", err)
+		return
+	} else {
+		lastPingTimestamp = time.Now() // update last ping timestamp
+	}
+}
+
 // sets process name for the terminal window
 func SetProcessName(name string) error {
 	argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
@@ -285,6 +306,14 @@ func SetProcessName(name string) error {
 	return nil
 }
 
+// formats the address for handling IPv6 addresses correctly
+func formatAddress(addr string, port int) string {
+    if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
+        return fmt.Sprintf("[%s]:%d", addr, port)
+    }
+    return fmt.Sprintf("%s:%d", addr, port)
+}
+
 // main process
 func main() {
 	// set window title
@@ -294,8 +323,8 @@ func main() {
 	config = loadConfig()
 	fmt.Println("Logged in as", config["username"])
 
-	// connect to the telnet server
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", config["server"], int(config["port"].(float64))))
+	// connect to the TCP chat server
+	conn, err := net.Dial("tcp", formatAddress(fmt.Sprintf("%v", config["server"]), int(config["port"].(float64))))
 	if err != nil {
 		fmt.Println("Error connecting to server:", err)
 		os.Exit(1)
@@ -351,6 +380,21 @@ func main() {
 				_, currentHeight := getTerminalSize()
 				moveCursor(1, currentHeight-1)
 				fmt.Print("Message: ")
+			case "pong":
+				// handle ping response
+				if lastPingTimestamp.IsZero() {
+					continue
+				} else {
+					pingDifference := time.Since(lastPingTimestamp)
+					addServerMessage(fmt.Sprint("Pong! Latency: ", pingDifference.Milliseconds(), "ms"), "bold_green")
+					lastPingTimestamp = time.Time{} // unset after pong
+					redrawMessages()
+
+					// restore cursor to input line
+					_, currentHeight := getTerminalSize()
+					moveCursor(1, currentHeight-1)
+					fmt.Print("Message: ")
+				}
 			case "handshake":
 				// handle handshake
 				serverName = jsonMsg["serverName"]
@@ -453,6 +497,8 @@ func main() {
 						addServerMessage(fmt.Sprintf("Color is already set to %s.", newColor), "bold_yellow")
 					}
 					redrawMessages()
+				case "ping":
+					sendPing(conn)
 				case "exit", "quit", "bye":
 					fmt.Println("Exiting chat...")
 					os.Exit(0)
@@ -462,7 +508,6 @@ func main() {
 					continue
 				}
 			} else {
-
 				sendMessage(conn, config["username"].(string), message, validateColorName(config["color"].(string)))
 				redrawMessages()
 			}

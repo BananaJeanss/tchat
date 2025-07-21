@@ -149,10 +149,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			time.Sleep(100 * time.Millisecond)
 			serverDmUser(fmt.Sprintf("Welcome to %s, there are %d users online", serverName, clientCount), jsonMsg["user"])
 			continue
-		}
-
-		// when a user sends a message
-		if jsonMsg["type"] == "message" {
+		} else if jsonMsg["type"] == "message" { // when a user sends a message
 			// check if message is not empty
 			if jsonMsg["message"] == "" {
 				continue
@@ -183,6 +180,24 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 
 			broadcastMessage(jsonMsg)
 
+		} else if jsonMsg["type"] == "ping" {
+			// handle ping message
+			fmt.Println("Received ping from:", jsonMsg["user"])
+			// send a pong response
+			pongMsg := map[string]string{
+				"type":    "pong",
+			}
+			jsonData, err := json.Marshal(pongMsg)
+			if err != nil {
+				log.Println("Error marshaling pong message:", err)
+				continue
+			}
+			_, err = conn.Write(jsonData)
+			if err != nil {
+				log.Println("Error sending pong message:", err)
+				continue
+			}
+			fmt.Println("Sent pong response to client:", jsonMsg["user"])
 		} else {
 			fmt.Println("Received non-message type:", jsonMsg["type"])
 		}
