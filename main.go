@@ -23,6 +23,8 @@ var serverName string
 
 var lastPingTimestamp time.Time
 
+var muteList = make(map[string]bool) // list of muted users
+
 // rate limit for messages
 var (
 	messageTimestamps []time.Time
@@ -306,12 +308,40 @@ func SetProcessName(name string) error {
 	return nil
 }
 
+func addMute(user string) {
+	if user == "" {
+		fmt.Println("Cannot mute an empty user.")
+		return
+	}
+	if _, exists := muteList[user]; exists {
+		fmt.Printf("User %s is already muted.\n", user)
+		return
+	}
+	muteList[user] = true
+	addServerMessage(fmt.Sprintf("You have muted %s.", user), "bold_yellow")
+	redrawMessages()
+}
+
+func removeMute(user string) {
+	if user == "" {
+		fmt.Println("Cannot unmute an empty user.")
+		return
+	}
+	if _, exists := muteList[user]; !exists {
+		fmt.Printf("User %s is not muted.\n", user)
+		return
+	}
+	delete(muteList, user)
+	addServerMessage(fmt.Sprintf("You have unmuted %s.", user), "bold_yellow")
+	redrawMessages()
+}
+
 // formats the address for handling IPv6 addresses correctly
 func formatAddress(addr string, port int) string {
-    if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
-        return fmt.Sprintf("[%s]:%d", addr, port)
-    }
-    return fmt.Sprintf("%s:%d", addr, port)
+	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "[") {
+		return fmt.Sprintf("[%s]:%d", addr, port)
+	}
+	return fmt.Sprintf("%s:%d", addr, port)
 }
 
 // main process
@@ -370,8 +400,13 @@ func main() {
 					}
 					addServerMessage(jsonMsg["message"])
 				} else {
-					// add user message
-					addMessage(jsonMsg["user"], jsonMsg["message"], jsonMsg["color"])
+					// check if user is muted first
+					if muteList[jsonMsg["user"]] {
+						continue
+					} else {
+						// add user message
+						addMessage(jsonMsg["user"], jsonMsg["message"], jsonMsg["color"])
+					}
 				}
 
 				redrawMessages()
@@ -499,6 +534,52 @@ func main() {
 					redrawMessages()
 				case "ping":
 					sendPing(conn)
+				case "mute":
+					if len(args) < 1 {
+						addServerMessage("Usage: //mute <username>", "bold_red")
+						redrawMessages()
+						continue
+					}
+					userToMute := args[0]
+					if userToMute == config["username"].(string) {
+						addServerMessage("You cannot mute yourself.", "bold_red")
+						redrawMessages()
+						continue
+					}
+					if muteList[userToMute] {
+						addServerMessage(fmt.Sprintf("User %s is already muted.", userToMute), "bold_yellow")
+					} else {
+						addMute(userToMute)
+					}
+				case "unmute":
+					if len(args) < 1 {
+						addServerMessage("Usage: //unmute <username>", "bold_red")
+						redrawMessages()
+						continue
+					}
+					userToUnmute := args[0]
+					if userToUnmute == config["username"].(string) {
+						addServerMessage("You cannot unmute yourself.", "bold_red")
+						redrawMessages()
+						continue
+					}
+					if _, exists := muteList[userToUnmute]; !exists {
+						addServerMessage(fmt.Sprintf("User %s is not muted.", userToUnmute), "bold_yellow")
+					} else {
+						removeMute(userToUnmute)
+					}
+				case "mutelist":
+					if len(muteList) == 0 {
+						addServerMessage("You have no muted users.", "bold_yellow")
+					} else {
+						muteListMsg := "Muted users: "
+						for user := range muteList {
+							muteListMsg += user + ", "
+						}
+						muteListMsg = strings.TrimSuffix(muteListMsg, ", ")
+						addServerMessage(muteListMsg, "bold_yellow")
+						redrawMessages()
+					}
 				case "exit", "quit", "bye":
 					fmt.Println("Exiting chat...")
 					os.Exit(0)

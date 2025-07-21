@@ -1,7 +1,5 @@
 # TODO List
 
-- Local Commands
-  - Commands such as /color, /time, etc
 - Toggleable Chat Filter
   - serverside toggleable profanity filter
 - Character Limits
