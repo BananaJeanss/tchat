@@ -4,16 +4,18 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/term"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"reflect"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/term"
 )
 
 var config map[string]interface{}
@@ -121,6 +123,13 @@ func validateAnsi(color string) string {
 	}
 	fmt.Println("Invalid color specified, using default (blue)")
 	return ansiColors["blue"] // default to blue if invalid
+}
+
+func validateColorName(color string) string {
+	if _, ok := ansiColors[color]; ok {
+		return color
+	}
+	return "blue"
 }
 
 // for messages sent by other users
@@ -257,6 +266,12 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+func clearMessages() {
+	// clear the messages slice
+	messages = []string{}
+	redrawMessages()
+}
+
 // sets process name for the terminal window
 func SetProcessName(name string) error {
 	argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
@@ -345,7 +360,7 @@ func main() {
 					_, err := fmt.Sscanf(val, "%d", &parsedLimit)
 					if err == nil {
 						messageCharLimit = parsedLimit
-						
+
 					}
 				}
 
@@ -393,25 +408,65 @@ func main() {
 		if scanner.Scan() {
 			message := scanner.Text()
 
+			// check for empty message
 			if message == "" {
 				continue
 			}
 
+			// char limit check
 			if len(message) > messageCharLimit {
 				message = message[:messageCharLimit] // truncate message if too long
 				addServerMessage(fmt.Sprintf("Message too long, truncated to %d characters.", messageCharLimit), "bold_red")
 				redrawMessages()
 			}
 
-
+			// ratelimit check
 			if !canSendMessage() {
 				addServerMessage("You are sending messages too fast, please wait a bit.", "bold_red")
 				redrawMessages()
 				continue
 			}
 
-			sendMessage(conn, config["username"].(string), message, config["color"].(string))
-			redrawMessages()
+			// command handling
+			if strings.HasPrefix(message, "//") {
+				// split command and arguments
+				cmdLine := strings.TrimSpace(message[2:])
+				parts := strings.Fields(cmdLine)
+				cmd := parts[0]
+				args := parts[1:]
+
+				switch cmd {
+				case "clear":
+					clearMessages()
+					addServerMessage("Chat cleared.")
+				case "color":
+					if len(args) < 1 {
+						addServerMessage("Usage: //color <color>", "bold_red")
+						redrawMessages()
+						continue
+					}
+					newColor := validateColorName(args[0])
+					if newColor != config["color"] {
+						config["color"] = newColor
+						addServerMessage(fmt.Sprintf("Color changed to %s.", newColor), "bold_green")
+					} else {
+						addServerMessage(fmt.Sprintf("Color is already set to %s.", newColor), "bold_yellow")
+					}
+					redrawMessages()
+				case "exit", "quit", "bye":
+					fmt.Println("Exiting chat...")
+					os.Exit(0)
+				default:
+					addServerMessage(fmt.Sprintf("Unknown command: %s", message[2:]), "bold_red")
+					redrawMessages()
+					continue
+				}
+			} else {
+
+				sendMessage(conn, config["username"].(string), message, validateColorName(config["color"].(string)))
+				redrawMessages()
+			}
+
 		}
 	}
 }
