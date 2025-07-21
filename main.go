@@ -339,8 +339,8 @@ func main() {
 			case "handshake":
 				// handle handshake
 				serverName = jsonMsg["serverName"]
-				// parse charLimit from string to int
-				if val, ok := jsonMsg["charLimit"]; ok {
+				// parse messageCharLimit from string to int
+				if val, ok := jsonMsg["messageCharLimit"]; ok {
 					var parsedLimit int
 					_, err := fmt.Sscanf(val, "%d", &parsedLimit)
 					if err == nil {

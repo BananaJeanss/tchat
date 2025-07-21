@@ -159,13 +159,27 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			}
 
 			// check if message exceeds character limit, if so, trim
-			charLimit := int(serverConfig["charLimit"].(float64))
+			charLimit := int(serverConfig["messageCharLimit"].(float64))
 			if len(jsonMsg["message"]) > charLimit {
 				jsonMsg["message"] = jsonMsg["message"][:charLimit]
 				// message should already be displayed clientside
 			}
 
 			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
+
+			if config, ok := serverConfig["logMessages"].(bool); ok && config {
+				// log messages to a file
+				logFile, err := os.OpenFile("chat.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					log.Println("Error opening log file:", err)
+				} else {
+					defer logFile.Close()
+					logMessage := fmt.Sprintf("%s [%s]: %s\n", time.Now().Format("2006-01-02 15:04:05"), jsonMsg["user"], jsonMsg["message"])
+					if _, err := logFile.WriteString(logMessage); err != nil {
+						log.Println("Error writing to log file:", err)
+					}
+				}
+			}
 
 			broadcastMessage(jsonMsg)
 
@@ -260,7 +274,7 @@ func sendHandshake(conn net.Conn) error {
 		"message":    "HandshakeStart",
 		"type":       "handshake",
 		"serverName": serverConfig["serverName"].(string),
-		"charLimit":  fmt.Sprintf("%d", int(serverConfig["charLimit"].(float64))),
+		"messageCharLimit":  fmt.Sprintf("%d", int(serverConfig["messageCharLimit"].(float64))),
 	}
 
 	jsonMsg, err := json.Marshal(handshakeMsg)
@@ -287,7 +301,8 @@ func loadConfig() map[string]interface{} {
 			defaultConfig := map[string]interface{}{
 				"port":       9076.0, // make sure its float64
 				"serverName": "an tchat server",
-				"charLimit":  180.0, // character limit for messages
+				"messageCharLimit":  180.0, // character limit for messages
+				"logMessages": false, // whether to log messages to a file
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
