@@ -112,6 +112,16 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				}
 				return true // not in use, continue
 			})
+
+			// check if username is between 3-20 characters
+			if len(jsonMsg["user"]) < 3 || len(jsonMsg["user"]) > 20 {
+				fmt.Println("Username must be between 3 and 20 characters:", jsonMsg["user"])
+				conn.Write([]byte("Username must be between 3 and 20 characters"))
+				clients.Delete(conn)
+				conn.Close()
+				return
+			}
+
 			if usernameInUse {
 				fmt.Println("Username already in use:", jsonMsg["user"])
 				conn.Write([]byte(`{

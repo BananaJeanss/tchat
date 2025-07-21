@@ -4,8 +4,6 @@
   - serverside toggleable profanity filter
 - Character Limits
   - Username char limit to be implemented serverside
-- Fix " not working in messages
-  - currently counted as invalid json
 - Serverside admin commands
   - /clear, /kick, etc
 - Ratelimits

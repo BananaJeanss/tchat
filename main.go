@@ -114,14 +114,23 @@ func canSendMessage() bool {
 // sends messages to the server
 func sendMessage(conn net.Conn, user string, msg string, color string) {
 	// format to json for consistency
-	jsonMsg := fmt.Sprintf(`{"user": "%s", "message": "%s", "type": "message", "color": "%s"}`, user, msg, color)
-	_, err := conn.Write([]byte(jsonMsg))
+	jsonMsg := map[string]string{
+		"user":    user,
+		"message": msg,
+		"type":    "message",
+		"color":   color,
+	}
+	jsonData, err := json.Marshal(jsonMsg)
 	if err != nil {
-		fmt.Println("Error sending message:", err)
+		addServerMessage("Error marshaling message: "+err.Error(), "bold_red")
+		return
+	}
+	_, err = conn.Write(jsonData)
+	if err != nil {
+		addServerMessage("Error sending message: "+err.Error(), "bold_red")
 		return
 	}
 }
-
 func validateAnsi(color string) string {
 	if ansiColors[color] != "" {
 		return ansiColors[color]
