@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -136,6 +137,25 @@ func validateColorName(color string) string {
 	return "blue"
 }
 
+// wraps text on screen
+func wrapText(text string, width int) []string {
+	var lines []string
+	for len(text) > width {
+		lines = append(lines, text[:width])
+		text = text[width:]
+	}
+	if len(text) > 0 {
+		lines = append(lines, text)
+	}
+	return lines
+}
+
+// strips ansi codes from a string
+func stripAnsiCodes(str string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return re.ReplaceAllString(str, "")
+}
+
 // for messages sent by other users
 func addMessage(user string, msg string, color string) {
 	// add @ prefix
@@ -153,11 +173,23 @@ func addMessage(user string, msg string, color string) {
 	// color username
 	displayUser = "\033[34m" + displayUser + "\033[0m" // blue color
 
-	messages = append(messages, fmt.Sprintf("%s: %s", displayUser, msg))
+	width, _ := getTerminalSize()
 
-	// keep only the messages that fit on screen
+	usernameWidth := len(stripAnsiCodes(displayUser))
+
+	wrappedLines := wrapText(msg, width-usernameWidth) // indent for username
+
+	// if the message is too long, wrap it
+	for i, line := range wrappedLines {
+		if i == 0 {
+			messages = append(messages, fmt.Sprintf("%s: %s", displayUser, line))
+		} else {
+			messages = append(messages, fmt.Sprintf("%s  %s", strings.Repeat(" ", usernameWidth), line))
+		}
+	}
+
 	if len(messages) > maxMessages {
-		messages = messages[1:] // remove oldest message
+		messages = messages[len(messages)-maxMessages:]
 	}
 }
 
