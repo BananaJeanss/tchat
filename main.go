@@ -302,6 +302,69 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+func getAnsiColorNames() []string {
+	colorNames := make([]string, 0, len(ansiColors))
+	for name := range ansiColors {
+		colorNames = append(colorNames, name)
+	}
+	return colorNames
+}
+
+func validateConfig(config map[string]interface{}) (string, bool) {
+	configValidateResponse := ""
+	isConfigOk := true
+
+	// server check
+	if _, ok := config["server"].(string); !ok {
+		configValidateResponse += "server must be a string\n"
+		isConfigOk = false
+	} else {
+		// check if server is a valid hostname or IP address
+		if !regexp.MustCompile(`^([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+])$`).MatchString(config["server"].(string)) {
+			configValidateResponse += "server must be a valid hostname or IP address\n"
+			isConfigOk = false
+		}
+	}
+
+	// port check
+	if _, ok := config["port"].(float64); !ok {
+		configValidateResponse += "port must be a number\n"
+		isConfigOk = false
+	} else {
+		port := int(config["port"].(float64))
+		if port < 1 || port > 65535 {
+			configValidateResponse += "port must be between 1 and 65535\n"
+			isConfigOk = false
+		}
+	}
+
+	// username check
+	if _, ok := config["username"].(string); !ok {
+		configValidateResponse += "username must be a string\n"
+		isConfigOk = false
+	} else {
+		username := config["username"].(string)
+		if len(username) < 3 || len(username) > 20 {
+			configValidateResponse += "username must be between 3 and 20 characters long\n"
+			isConfigOk = false
+		}
+	}
+
+	// color check
+	if _, ok := config["color"].(string); !ok {
+		configValidateResponse += "color must be a string\n"
+		isConfigOk = false
+	} else {
+		color := config["color"].(string)
+		if _, exists := ansiColors[color]; !exists {
+			configValidateResponse += fmt.Sprintf("color must be one of: %s\n", strings.Join(getAnsiColorNames(), ", "))
+			isConfigOk = false
+		}
+	}
+
+	return configValidateResponse, isConfigOk
+}
+
 func clearMessages() {
 	// clear the messages slice
 	messages = []string{}
@@ -383,6 +446,15 @@ func main() {
 
 	// load up config
 	config = loadConfig()
+
+	checkMessages, configOk := validateConfig(config)
+	if !configOk {
+		fmt.Println("Invalid configuration:")
+		fmt.Println(checkMessages)
+		fmt.Println("Please fix the configuration and try again.")
+		os.Exit(1)
+	}
+
 	fmt.Println("Logged in as", config["username"])
 
 	// connect to the TCP chat server

@@ -306,6 +306,69 @@ func sendHandshake(conn net.Conn) error {
 	return nil
 }
 
+func configValidate(config map[string]interface{}) (string, bool) {
+	// validate the config map
+	configValidateResponse := ""
+	isConfigOk := true
+	
+	// port check
+	if port, ok := config["port"].(float64); ok {
+		if port < 1 || port > 65535 {
+			configValidateResponse += "port must be between 1 and 65535\n"
+			isConfigOk = false
+		}
+	}
+
+	// serverName check
+	if serverName, ok := config["serverName"].(string); ok {
+		if len(serverName) > 25 {
+			configValidateResponse += "serverName must be under 25 chars\n"
+			isConfigOk = false
+		}
+	} else {
+		configValidateResponse += "serverName must be a valid string\n"
+		isConfigOk = false
+	}
+
+	// messageCharLimit check
+	if messageCharLimit, ok := config["messageCharLimit"].(float64); ok {
+		if messageCharLimit < 1 || messageCharLimit > 1000 {
+			configValidateResponse += "messageCharLimit must be between 1 and 1000\n"
+			isConfigOk = false
+		}
+	} else {
+		configValidateResponse += "messageCharLimit must be a valid number\n"
+		isConfigOk = false
+	}
+
+	// logMessages check
+	if _, ok := config["logMessages"].(bool); !ok {
+		configValidateResponse += "logMessages must be a boolean value\n"
+		isConfigOk = false
+	}
+
+	// passwordProtected check
+	if passwordProtected, ok := config["passwordProtected"].(bool); ok {
+		if passwordProtected {
+			// if passwordProtected is true, serverPassword must be a non-empty string
+			if serverPassword, ok := config["serverPassword"].(string); ok {
+				if serverPassword == "" {
+					configValidateResponse += "serverPassword must not be empty when passwordProtected is true\n"
+					isConfigOk = false
+				}
+			} else {
+				configValidateResponse += "serverPassword must be a valid string when passwordProtected is true\n"
+				isConfigOk = false
+			}
+		}
+	} else {
+		configValidateResponse += "passwordProtected must be a boolean value\n"
+		isConfigOk = false
+	}
+
+	return configValidateResponse, isConfigOk
+}
+
 func loadConfig() map[string]interface{} {
 	const configFile = "./config.json"
 	file, err := os.Open(configFile)
@@ -318,6 +381,8 @@ func loadConfig() map[string]interface{} {
 				"serverName": "an tchat server",
 				"messageCharLimit":  180.0, // character limit for messages
 				"logMessages": false, // whether to log messages to a file
+				"passwordProtected": false, // whether the server is password protected
+				"serverPassword": "", // server password, if empty, passwordProtected will be set to false
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
@@ -355,6 +420,14 @@ func main() {
 
 	// load up server config
 	serverConfig = loadConfig()
+
+	configMsg, configOk := configValidate(serverConfig)
+	if !configOk {
+		fmt.Println("Invalid server configuration:")
+		fmt.Println(configMsg)
+		fmt.Println("Please fix the configuration and try again.")
+		return
+	}
 
 	// set process name
 	SetProcessName(serverConfig["serverName"].(string))
