@@ -23,6 +23,10 @@ type ClientInfo struct {
 var clients sync.Map // key: net.Conn, value: *ClientInfo
 var serverConfig map[string]interface{}
 
+// store 10 latest messages
+var messageHistory []map[string]string
+var messageHistoryMutex sync.Mutex
+
 var ansiColors = map[string]string{
 	"reset":   "\033[0m",
 	"red":     "\033[31m",
@@ -187,6 +191,12 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			// Clear the read deadline after handshake
 			conn.SetReadDeadline(time.Time{})
 			fmt.Println("Handshake received from client:", jsonMsg["user"])
+
+			// send message history here if enabled
+			if serverConfig["sendMessageHistory"].(bool) {
+				sendMessageHistory(conn)
+			}
+			
 			broadcastMessage(map[string]string{
 				"type":    "message",
 				"user":    "server",
@@ -301,7 +311,43 @@ func validateAnsi(color string) string {
 	return ansiColors["blue"] // return blue color if invalid
 }
 
+func sendMessageHistory(conn net.Conn) {
+    messageHistoryMutex.Lock()
+    defer messageHistoryMutex.Unlock()
+
+    if len(messageHistory) == 0 {
+        return // no messages to send
+    }
+
+    for _, msg := range messageHistory {
+        jsonData, err := json.Marshal(msg)
+        if err != nil {
+            log.Println("Error marshaling message history:", err)
+            continue
+        }
+        _, err = conn.Write(jsonData)
+        if err != nil {
+            log.Println("Error sending message history to client:", err)
+            break
+        }
+        // small delay to avoid messing up the client
+        time.Sleep(10 * time.Millisecond)
+    }
+}
+
 func broadcastMessage(message map[string]string) {
+	// store message in history
+	if message["type"] == "message" {
+		if config, ok := serverConfig["sendMessageHistory"].(bool); ok && config {
+			messageHistoryMutex.Lock()
+			messageHistory = append(messageHistory, message)
+			if len(messageHistory) > 10 {
+				messageHistory = messageHistory[1:] // keep only the latest 10
+			}
+			messageHistoryMutex.Unlock()
+		}
+	}
+
 	clients.Range(func(key, value interface{}) bool {
 		clientInfo := value.(*ClientInfo)
 		if !clientInfo.isApproved {
@@ -446,12 +492,13 @@ func loadConfig() map[string]interface{} {
 			fmt.Printf("Config file '%s' not found, creating one!\n", configFile)
 			// if doesnt exist, create default config file
 			defaultConfig := map[string]interface{}{
-				"port":              9076.0, // make sure its float64
-				"serverName":        "an tchat server",
-				"messageCharLimit":  180.0, // character limit for messages
-				"logMessages":       false, // whether to log messages to a file
-				"passwordProtected": false, // whether the server is password protected
-				"serverPassword":    "",    // server password, if empty, passwordProtected will be set to false
+				"port":               9076.0, // make sure its float64
+				"serverName":         "an tchat server",
+				"messageCharLimit":   180.0, // character limit for messages
+				"logMessages":        false, // whether to log messages to a file
+				"passwordProtected":  false, // whether the server is password protected
+				"serverPassword":     "",    // server password, if empty, passwordProtected will be set to false
+				"sendMessageHistory": true,  // whether to send message history to new clients
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
