@@ -205,10 +205,20 @@ func addMessage(user string, msg string, color string) {
 // for messages sent from the server
 func addServerMessage(msg string, color ...string) {
 	// color the server message, color should always be bold
+	themeColor := config["themeColor"].(string)
 	if len(color) > 0 && ansiColors[color[0]] != "" {
 		msg = ansiColors[color[0]] + msg + ansiColors["reset"]
 	} else {
-		msg = ansiColors["bold_blue"] + msg + ansiColors["reset"] // default to blue
+		// handle magenta specially since there's no "bold_magenta", use "bold_purple"
+		if themeColor == "magenta" {
+			msg = ansiColors["bold_purple"] + msg + ansiColors["reset"]
+		} else {
+			if strings.HasPrefix(themeColor, "bold_") {
+				msg = ansiColors[themeColor] + msg + ansiColors["reset"]
+			} else {
+				msg = ansiColors["bold_"+themeColor] + msg + ansiColors["reset"]
+			}
+		}// default to themeColor set in config
 	}
 	messages = append(messages, msg)
 
@@ -232,13 +242,48 @@ func redrawMessages() {
 	moveCursor(1, 1)
 	// print header
 	if config == nil {
-		fmt.Print("\033[1;34m--- tchat (unconfigured) ---\033[0m\n")
+		themeColor := "blue"
+		if config != nil {
+			if val, ok := config["themeColor"].(string); ok {
+				themeColor = val
+			}
+		}
+		boldColor := themeColor
+		if !strings.HasPrefix(themeColor, "bold_") {
+			// handle magenta specially since there's no "bold_magenta", use "bold_purple"
+			if themeColor == "magenta" {
+				boldColor = "bold_purple"
+			} else {
+				boldColor = "bold_" + themeColor
+			}
+		}
+		colorCode, ok := ansiColors[boldColor]
+		if !ok {
+			colorCode = ansiColors["bold_blue"]
+		}
+		fmt.Printf("%s--- tchat (unconfigured) ---%s\n", colorCode, ansiColors["reset"])
 	} else {
-		fmt.Printf("\033[1;34m--- %s on %s:%d as %s ---\033[0m\n",
+		themeColor := config["themeColor"].(string)
+		boldColor := themeColor
+		if !strings.HasPrefix(themeColor, "bold_") {
+			// handle magenta specially since there's no "bold_magenta", use "bold_purple"
+			if themeColor == "magenta" {
+				boldColor = "bold_purple"
+			} else {
+				boldColor = "bold_" + themeColor
+			}
+		}
+		colorCode, ok := ansiColors[boldColor]
+		if !ok {
+			colorCode = ansiColors["bold_blue"]
+		}
+		fmt.Printf("%s--- %s on %s:%d as %s ---%s\n",
+			colorCode,
 			serverName,
 			config["server"],
 			int(config["port"].(float64)),
-			config["username"])
+			config["username"],
+			ansiColors["reset"])
 	}
 
 	// calculate starting line for messages
@@ -279,6 +324,7 @@ func loadConfig() map[string]interface{} {
 				"port":           9076.0, // make sure its float64
 				"username":       "user",
 				"color":          "blue", // has to be an ansi color, otherwise server rejects + goes to default (blue)
+				"themeColor":     "blue", // theme used in banner and default server messages
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
@@ -367,6 +413,18 @@ func validateConfig(config map[string]interface{}) (string, bool) {
 		color := config["color"].(string)
 		if _, exists := ansiColors[color]; !exists {
 			configValidateResponse += fmt.Sprintf("color must be one of: %s\n", strings.Join(getAnsiColorNames(), ", "))
+			isConfigOk = false
+		}
+	}
+
+	// themeColor check
+	if _, ok := config["themeColor"].(string); !ok {
+		configValidateResponse += "themeColor must be a string\n"
+		isConfigOk = false
+	} else {
+		themeColor := config["themeColor"].(string)
+		if _, exists := ansiColors[themeColor]; !exists {
+			configValidateResponse += fmt.Sprintf("themeColor must be one of: %s\n", strings.Join(getAnsiColorNames(), ", "))
 			isConfigOk = false
 		}
 	}
@@ -604,11 +662,27 @@ func main() {
 	// screen init
 	clearScreen()
 	_, height := getTerminalSize()
-	fmt.Printf("\033[1;34m--- %s on %s:%d as %s ---\033[0m\n",
+	themeColor := config["themeColor"].(string)
+	boldColor := themeColor
+	if !strings.HasPrefix(themeColor, "bold_") {
+		// handle magenta specially since there's no "bold_magenta", use "bold_purple"
+		if themeColor == "magenta" {
+			boldColor = "bold_purple"
+		} else {
+			boldColor = "bold_" + themeColor
+		}
+	}
+	colorCode, ok := ansiColors[boldColor]
+	if !ok {
+		colorCode = ansiColors["bold_blue"]
+	}
+	fmt.Printf("%s--- %s on %s:%d as %s ---%s\n",
+		colorCode,
 		"tchat",
 		config["server"],
 		int(config["port"].(float64)),
-		config["username"])
+		config["username"],
+		ansiColors["reset"])
 	initChatArea()
 
 	// create a scanner that reads from stdin
