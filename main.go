@@ -319,7 +319,7 @@ func loadConfig() map[string]interface{} {
 			fmt.Printf("Config file '%s' not found, creating one!\n", configFile)
 			// if doesnt exist, create default config file
 			defaultConfig := map[string]interface{}{
-				"server":         "localhost",
+				"server":         "37.27.51.34", // default server hosted on Nest
 				"serverPassword": "",     // used if the server has PasswordProtected enabled
 				"port":           9076.0, // make sure its float64
 				"username":       "user",
@@ -353,6 +353,17 @@ func loadConfig() map[string]interface{} {
 	if err := decoder.Decode(&config); err != nil {
 		fmt.Printf("Error decoding config file: %v\n", err)
 		return nil
+	}
+
+	// if username "user", randomize it with numbers
+	if username, ok := config["username"].(string); ok && username == "user" {
+		randomSuffix := fmt.Sprintf("%d", time.Now().UnixNano()%10000) // randomize with last 4 digits of timestamp
+		config["username"] = "user" + randomSuffix
+		go func() { // goroutine to not block main thread
+			time.Sleep(1 * time.Second)
+			addServerMessage(fmt.Sprintf("Your username was randomized to %s", config["username"]), "bold_yellow")
+			redrawMessages()
+		}()
 	}
 	return config
 }
