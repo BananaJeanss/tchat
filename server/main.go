@@ -35,7 +35,6 @@ var messageHistoryMutex sync.Mutex
 // ip ban table
 var ipBanTable sync.Map // key: string (IP address), value: bool (banned or not)
 
-
 var ansiColors = map[string]string{
 	"reset":   "\033[0m",
 	"red":     "\033[31m",
@@ -305,8 +304,6 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 	}
 }
 
-
-
 func isRateLimited(client *ClientInfo) bool {
 	const rateLimitWindow = 5 * time.Second
 	const rateLimitCount = 10 // max of 10 messages in 5 seconds
@@ -539,7 +536,7 @@ func configValidate(config map[string]interface{}) (string, bool) {
 }
 
 func loadConfig() map[string]interface{} {
-	const configFile = "./config.json"
+	const configFile = "./tchatconfig.json"
 	file, err := os.Open(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -588,48 +585,48 @@ func loadConfig() map[string]interface{} {
 
 // ...existing code...
 func handleServerCommand(cmdLine string) {
-    args := strings.Fields(cmdLine)
-    if len(args) == 0 {
-        return
-    }
-    switch args[0] {
-    case "//clearchat":
-        messageHistoryMutex.Lock()
-        messageHistory = nil
-        messageHistoryMutex.Unlock()
-        broadcastMessage(map[string]string{
-            "type":    "clearChat",
-            "user":    "server",
-            "message": "Chat history has been cleared by the server.",
-        })
-        fmt.Println("Chat cleared.")
-    case "//kick":
-        if len(args) < 2 {
-            fmt.Println("Usage: //kick <username>")
-            return
-        }
-        username := args[1]
-        kicked := false
-        clients.Range(func(key, value interface{}) bool {
-            c := value.(*ClientInfo)
-            if c.Username == username {
-                c.Conn.Close()
-                kicked = true
-                return false
-            }
-            return true
-        })
-        if kicked {
-            broadcastMessage(map[string]string{
-                "type":    "message",
-                "user":    "server",
-                "message": fmt.Sprintf("%s has been kicked by the server.", username),
-            })
-            fmt.Printf("User %s kicked.\n", username)
-        } else {
-            fmt.Println("User not found.")
-        }
-    case "//broadcast":
+	args := strings.Fields(cmdLine)
+	if len(args) == 0 {
+		return
+	}
+	switch args[0] {
+	case "//clearchat":
+		messageHistoryMutex.Lock()
+		messageHistory = nil
+		messageHistoryMutex.Unlock()
+		broadcastMessage(map[string]string{
+			"type":    "clearChat",
+			"user":    "server",
+			"message": "Chat history has been cleared by the server.",
+		})
+		fmt.Println("Chat cleared.")
+	case "//kick":
+		if len(args) < 2 {
+			fmt.Println("Usage: //kick <username>")
+			return
+		}
+		username := args[1]
+		kicked := false
+		clients.Range(func(key, value interface{}) bool {
+			c := value.(*ClientInfo)
+			if c.Username == username {
+				c.Conn.Close()
+				kicked = true
+				return false
+			}
+			return true
+		})
+		if kicked {
+			broadcastMessage(map[string]string{
+				"type":    "message",
+				"user":    "server",
+				"message": fmt.Sprintf("%s has been kicked by the server.", username),
+			})
+			fmt.Printf("User %s kicked.\n", username)
+		} else {
+			fmt.Println("User not found.")
+		}
+	case "//broadcast":
 		if len(args) < 2 {
 			fmt.Println("Usage: /broadcast <message>")
 			return
@@ -731,7 +728,7 @@ func main() {
 		}
 
 		// check if the IP is banned first
-		// i have no idea if this actually works but trust the process 
+		// i have no idea if this actually works but trust the process
 		ip := conn.RemoteAddr().(*net.TCPAddr).IP.String()
 		if _, banned := ipBanTable.Load(ip); banned {
 			fmt.Println("Connection from banned IP:", ip)

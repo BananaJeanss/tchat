@@ -218,7 +218,7 @@ func addServerMessage(msg string, color ...string) {
 			} else {
 				msg = ansiColors["bold_"+themeColor] + msg + ansiColors["reset"]
 			}
-		}// default to themeColor set in config
+		} // default to themeColor set in config
 	}
 	messages = append(messages, msg)
 
@@ -312,7 +312,7 @@ func clearLine() {
 
 // loads the config from a file, if it doesn't exist, creates a default one
 func loadConfig() map[string]interface{} {
-	const configFile = "./config.json"
+	const configFile = "./tchatconfig.json"
 	file, err := os.Open(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
