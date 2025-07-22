@@ -1,23 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
-	"github.com/TwiN/go-away" // for profanity check
+
+	goaway "github.com/TwiN/go-away" // for profanity check
 )
 
 type ClientInfo struct {
-	Conn       net.Conn // connection to the client
-	Username   string   // username of the client
-	IP         string   // IP address of the client
-	isApproved bool     // whether the client has been approved after handshake (used for passwordProtected)
+	Conn          net.Conn    // connection to the client
+	Username      string      // username of the client
+	IP            string      // IP address of the client
+	isApproved    bool        // whether the client has been approved after handshake (used for passwordProtected)
+	MsgTimestamps []time.Time // timestamps of the last 10 messages sent by the client
 }
 
 // Change clients to store ClientInfo
@@ -27,6 +31,10 @@ var serverConfig map[string]interface{}
 // store 10 latest messages
 var messageHistory []map[string]string
 var messageHistoryMutex sync.Mutex
+
+// ip ban table
+var ipBanTable sync.Map // key: string (IP address), value: bool (banned or not)
+
 
 var ansiColors = map[string]string{
 	"reset":   "\033[0m",
@@ -220,6 +228,18 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 					fmt.Println("Client not approved, ignoring message from:", client.Username)
 					continue
 				}
+				// check if ratelimited
+				if isRateLimited(client) {
+					fmt.Printf("Rate limit exceeded for user: %s\n", client.Username)
+					warnMsg := map[string]string{
+						"type":    "message",
+						"user":    "server",
+						"message": "You are sending messages too fast, please wait a bit.",
+					}
+					jsonData, _ := json.Marshal(warnMsg)
+					conn.Write(jsonData)
+					continue
+				}
 			} else {
 				continue
 			}
@@ -283,6 +303,32 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			fmt.Println("Received non-message type:", jsonMsg["type"])
 		}
 	}
+}
+
+
+
+func isRateLimited(client *ClientInfo) bool {
+	const rateLimitWindow = 5 * time.Second
+	const rateLimitCount = 10 // max of 10 messages in 5 seconds
+
+	now := time.Now()
+	cutoff := now.Add(-rateLimitWindow)
+
+	// remove old timestamps outside window
+	i := 0
+	for ; i < len(client.MsgTimestamps); i++ {
+		if client.MsgTimestamps[i].After(cutoff) {
+			break
+		}
+	}
+	client.MsgTimestamps = client.MsgTimestamps[i:]
+
+	if len(client.MsgTimestamps) >= rateLimitCount {
+		return true
+	}
+
+	client.MsgTimestamps = append(client.MsgTimestamps, now)
+	return false
 }
 
 func serverDmUser(message string, user string) {
@@ -540,6 +586,96 @@ func loadConfig() map[string]interface{} {
 	return config
 }
 
+// ...existing code...
+func handleServerCommand(cmdLine string) {
+    args := strings.Fields(cmdLine)
+    if len(args) == 0 {
+        return
+    }
+    switch args[0] {
+    case "//clearchat":
+        messageHistoryMutex.Lock()
+        messageHistory = nil
+        messageHistoryMutex.Unlock()
+        broadcastMessage(map[string]string{
+            "type":    "clearChat",
+            "user":    "server",
+            "message": "Chat history has been cleared by the server.",
+        })
+        fmt.Println("Chat cleared.")
+    case "//kick":
+        if len(args) < 2 {
+            fmt.Println("Usage: //kick <username>")
+            return
+        }
+        username := args[1]
+        kicked := false
+        clients.Range(func(key, value interface{}) bool {
+            c := value.(*ClientInfo)
+            if c.Username == username {
+                c.Conn.Close()
+                kicked = true
+                return false
+            }
+            return true
+        })
+        if kicked {
+            broadcastMessage(map[string]string{
+                "type":    "message",
+                "user":    "server",
+                "message": fmt.Sprintf("%s has been kicked by the server.", username),
+            })
+            fmt.Printf("User %s kicked.\n", username)
+        } else {
+            fmt.Println("User not found.")
+        }
+    case "//broadcast":
+		if len(args) < 2 {
+			fmt.Println("Usage: /broadcast <message>")
+			return
+		}
+		message := strings.Join(args[1:], " ")
+		broadcastMessage(map[string]string{
+			"type":    "message",
+			"user":    "server",
+			"message": message,
+		})
+	case "//ban": // TODO: write bans to a json file for persistence
+		if len(args) < 2 {
+			fmt.Println("Usage: //ban <user>")
+			return
+		}
+		username := args[1]
+		banned := false
+		clients.Range(func(key, value interface{}) bool {
+			c := value.(*ClientInfo)
+			if c.Username == username {
+				// add to ipBanTable
+				ip := c.IP
+				if _, exists := ipBanTable.Load(ip); !exists {
+					ipBanTable.Store(ip, true)
+					banned = true
+					c.Conn.Close()
+					clients.Delete(c.Conn)
+					broadcastMessage(map[string]string{
+						"type":    "message",
+						"user":    "server",
+						"message": fmt.Sprintf("%s has been banned from the server.", username),
+					})
+					fmt.Printf("User %s banned.\n", username)
+				}
+				return false
+			}
+			return true
+		})
+		if !banned {
+			fmt.Println("User not found.")
+		}
+	default:
+		fmt.Println("Unknown command:", args[0])
+	}
+}
+
 // server startup
 func main() {
 
@@ -570,11 +706,36 @@ func main() {
 	defer listener.Close()
 	fmt.Println("Chat server started on port", port)
 
+	// goroutine for handling serverside commands
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for {
+			fmt.Print("server> ")
+			if !scanner.Scan() {
+				break
+			}
+			cmdLine := scanner.Text()
+			if cmdLine == "" {
+				continue
+			}
+			handleServerCommand(cmdLine)
+		}
+	}()
+
 	// accept connections in a loop
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection:", err)
+			continue
+		}
+
+		// check if the IP is banned first
+		// i have no idea if this actually works but trust the process 
+		ip := conn.RemoteAddr().(*net.TCPAddr).IP.String()
+		if _, banned := ipBanTable.Load(ip); banned {
+			fmt.Println("Connection from banned IP:", ip)
+			conn.Close()
 			continue
 		}
 

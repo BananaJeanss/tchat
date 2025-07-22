@@ -653,6 +653,11 @@ func main() {
 					break
 				}
 				addServerMessage(jsonMsg["message"])
+			case "clearChat":
+				// clear chat history
+				clearMessages()
+				addServerMessage("Chat history has been cleared by the server.", "bold_yellow")
+				redrawMessages()
 			default:
 				fmt.Println("Received unknown message type:", jsonMsg["type"])
 			}
@@ -729,6 +734,7 @@ func main() {
 				case "clear":
 					clearMessages()
 					addServerMessage("Chat cleared.")
+					redrawMessages()
 				case "color":
 					if len(args) < 1 {
 						addServerMessage("Usage: //color <color>", "bold_red")
