@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+	"github.com/TwiN/go-away" // for profanity check
 )
 
 type ClientInfo struct {
@@ -196,7 +197,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			if serverConfig["sendMessageHistory"].(bool) {
 				sendMessageHistory(conn)
 			}
-			
+
 			broadcastMessage(map[string]string{
 				"type":    "message",
 				"user":    "server",
@@ -233,6 +234,13 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			if len(jsonMsg["message"]) > charLimit {
 				jsonMsg["message"] = jsonMsg["message"][:charLimit]
 				// message should already be displayed clientside
+			}
+
+			// profanity check if enabled in config
+			if serverConfig["profanityCheck"].(bool) {
+				if goaway.IsProfane(jsonMsg["message"]) {
+					jsonMsg["message"] = goaway.Censor(jsonMsg["message"])
+				}
 			}
 
 			fmt.Printf("Received message from %s: %s\n", jsonMsg["user"], jsonMsg["message"])
@@ -312,27 +320,27 @@ func validateAnsi(color string) string {
 }
 
 func sendMessageHistory(conn net.Conn) {
-    messageHistoryMutex.Lock()
-    defer messageHistoryMutex.Unlock()
+	messageHistoryMutex.Lock()
+	defer messageHistoryMutex.Unlock()
 
-    if len(messageHistory) == 0 {
-        return // no messages to send
-    }
+	if len(messageHistory) == 0 {
+		return // no messages to send
+	}
 
-    for _, msg := range messageHistory {
-        jsonData, err := json.Marshal(msg)
-        if err != nil {
-            log.Println("Error marshaling message history:", err)
-            continue
-        }
-        _, err = conn.Write(jsonData)
-        if err != nil {
-            log.Println("Error sending message history to client:", err)
-            break
-        }
-        // small delay to avoid messing up the client
-        time.Sleep(10 * time.Millisecond)
-    }
+	for _, msg := range messageHistory {
+		jsonData, err := json.Marshal(msg)
+		if err != nil {
+			log.Println("Error marshaling message history:", err)
+			continue
+		}
+		_, err = conn.Write(jsonData)
+		if err != nil {
+			log.Println("Error sending message history to client:", err)
+			break
+		}
+		// small delay to avoid messing up the client
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func broadcastMessage(message map[string]string) {
@@ -499,6 +507,7 @@ func loadConfig() map[string]interface{} {
 				"passwordProtected":  false, // whether the server is password protected
 				"serverPassword":     "",    // server password, if empty, passwordProtected will be set to false
 				"sendMessageHistory": true,  // whether to send message history to new clients
+				"profanityCheck":     true,  // whether to enable profanity check
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
