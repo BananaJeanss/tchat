@@ -13,9 +13,10 @@ import (
 )
 
 type ClientInfo struct {
-	Conn     net.Conn
-	Username string
-	IP       string
+	Conn       net.Conn // connection to the client
+	Username   string   // username of the client
+	IP         string   // IP address of the client
+	isApproved bool     // whether the client has been approved after handshake (used for passwordProtected)
 }
 
 // Change clients to store ClientInfo
@@ -85,6 +86,31 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 				continue
 			}
 
+			// first off, check if password matches with serverPassword if passwordProtected is enabled
+			if serverConfig["passwordProtected"].(bool) {
+				if jsonMsg["serverPassword"] != serverConfig["serverPassword"].(string) {
+					fmt.Println("Invalid password received, closing connection")
+					errMsg := map[string]string{
+						"type":    "invalidPassword",
+						"user":    "server",
+						"message": "Invalid password",
+					}
+					jsonData, err := json.Marshal(errMsg)
+					if err != nil {
+						fmt.Println("Error marshaling error message:", err)
+						return
+					}
+					_, err = conn.Write(jsonData)
+					if err != nil {
+						fmt.Println("Error sending error message:", err)
+						return
+					}
+					clients.Delete(conn)
+					conn.Close()
+					return
+				}
+			}
+
 			// check if empty username
 			if jsonMsg["user"] == "" {
 				fmt.Println("Empty username received, closing connection")
@@ -124,16 +150,32 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 
 			if usernameInUse {
 				fmt.Println("Username already in use:", jsonMsg["user"])
-				conn.Write([]byte(`{
-					"type": "alreadyInUse",
-					"user": "server",
-					"message": "Username already in use"
-				}`))
+
+				errMsg := map[string]string{
+					"type":    "alreadyInUse",
+					"user":    "server",
+					"message": "Username already in use",
+				}
+
+				jsonData, err := json.Marshal(errMsg)
+				if err != nil {
+					fmt.Println("Error marshaling error message:", err)
+					return
+				}
+				_, err = conn.Write(jsonData)
+				if err != nil {
+					fmt.Println("Error sending error message:", err)
+					return
+				}
+
 				clients.Delete(conn)
 				conn.Close()
 				return
 			}
 
+			// atp the client checks out, approve the client
+			clientInfo.isApproved = true
+			fmt.Println("Client approved:", jsonMsg["user"])
 			// Set username after handshake
 			clientInfo.Username = jsonMsg["user"]
 
@@ -160,6 +202,17 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			serverDmUser(fmt.Sprintf("Welcome to %s, there are %d users online", serverName, clientCount), jsonMsg["user"])
 			continue
 		} else if jsonMsg["type"] == "message" { // when a user sends a message
+			// check if client is approved
+			if val, ok := clients.Load(conn); ok {
+				client := val.(*ClientInfo)
+				if !client.isApproved {
+					fmt.Println("Client not approved, ignoring message from:", client.Username)
+					continue
+				}
+			} else {
+				continue
+			}
+
 			// check if message is not empty
 			if jsonMsg["message"] == "" {
 				continue
@@ -195,7 +248,7 @@ func handleClient(conn net.Conn, handshakeDone chan struct{}) {
 			fmt.Println("Received ping from:", jsonMsg["user"])
 			// send a pong response
 			pongMsg := map[string]string{
-				"type":    "pong",
+				"type": "pong",
 			}
 			jsonData, err := json.Marshal(pongMsg)
 			if err != nil {
@@ -250,6 +303,10 @@ func validateAnsi(color string) string {
 
 func broadcastMessage(message map[string]string) {
 	clients.Range(func(key, value interface{}) bool {
+		clientInfo := value.(*ClientInfo)
+		if !clientInfo.isApproved {
+			return true // skip unapproved clients
+		}
 		conn := key.(net.Conn)
 		jsonMsg, err := json.Marshal(message)
 		if err != nil {
@@ -295,11 +352,12 @@ func sendHandshake(conn net.Conn) error {
 	// Send a quick handshake message to validate the user
 	// this should expect the username and a message of OK
 	handshakeMsg := map[string]string{
-		"user":       "server",
-		"message":    "HandshakeStart",
-		"type":       "handshake",
-		"serverName": serverConfig["serverName"].(string),
+		"user":              "server",
+		"message":           "HandshakeStart",
+		"type":              "handshake",
+		"serverName":        serverConfig["serverName"].(string),
 		"messageCharLimit":  fmt.Sprintf("%d", int(serverConfig["messageCharLimit"].(float64))),
+		"passwordProtected": fmt.Sprintf("%t", serverConfig["passwordProtected"].(bool)),
 	}
 
 	jsonMsg, err := json.Marshal(handshakeMsg)
@@ -316,11 +374,12 @@ func sendHandshake(conn net.Conn) error {
 	return nil
 }
 
+// validates the server configuration
 func configValidate(config map[string]interface{}) (string, bool) {
 	// validate the config map
 	configValidateResponse := ""
 	isConfigOk := true
-	
+
 	// port check
 	if port, ok := config["port"].(float64); ok {
 		if port < 1 || port > 65535 {
@@ -387,12 +446,12 @@ func loadConfig() map[string]interface{} {
 			fmt.Printf("Config file '%s' not found, creating one!\n", configFile)
 			// if doesnt exist, create default config file
 			defaultConfig := map[string]interface{}{
-				"port":       9076.0, // make sure its float64
-				"serverName": "an tchat server",
+				"port":              9076.0, // make sure its float64
+				"serverName":        "an tchat server",
 				"messageCharLimit":  180.0, // character limit for messages
-				"logMessages": false, // whether to log messages to a file
+				"logMessages":       false, // whether to log messages to a file
 				"passwordProtected": false, // whether the server is password protected
-				"serverPassword": "", // server password, if empty, passwordProtected will be set to false
+				"serverPassword":    "",    // server password, if empty, passwordProtected will be set to false
 			}
 			file, err := os.Create(configFile)
 			if err != nil {

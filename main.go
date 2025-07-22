@@ -274,10 +274,11 @@ func loadConfig() map[string]interface{} {
 			fmt.Printf("Config file '%s' not found, creating one!\n", configFile)
 			// if doesnt exist, create default config file
 			defaultConfig := map[string]interface{}{
-				"server":   "localhost",
-				"port":     9076.0, // make sure its float64
-				"username": "user",
-				"color":    "blue", // has to be an ansi color, otherwise server rejects + goes to default (blue)
+				"server":         "localhost",
+				"serverPassword": "",     // used if the server has PasswordProtected enabled
+				"port":           9076.0, // make sure its float64
+				"username":       "user",
+				"color":          "blue", // has to be an ansi color, otherwise server rejects + goes to default (blue)
 			}
 			file, err := os.Create(configFile)
 			if err != nil {
@@ -307,7 +308,6 @@ func loadConfig() map[string]interface{} {
 		fmt.Printf("Error decoding config file: %v\n", err)
 		return nil
 	}
-	fmt.Println("Config loaded successfully:")
 	return config
 }
 
@@ -505,12 +505,6 @@ func main() {
 			case "message":
 				// check if user or server
 				if jsonMsg["user"] == "server" {
-					// no idea why this works tbh
-					if jsonMsg["message"] == "Username already in use" {
-						os.Stdout.Sync() // flush stdout
-						os.Exit(1)
-						break
-					}
 					addServerMessage(jsonMsg["message"])
 				} else {
 					// check if user is muted first
@@ -546,6 +540,16 @@ func main() {
 			case "handshake":
 				// handle handshake
 				serverName = jsonMsg["serverName"]
+
+				isPasswordProtected := false
+				if val, ok := jsonMsg["passwordProtected"]; ok {
+					var parsedBool bool
+					_, err := fmt.Sscanf(val, "%t", &parsedBool)
+					if err == nil {
+						isPasswordProtected = parsedBool
+					}
+				}
+
 				// parse messageCharLimit from string to int
 				if val, ok := jsonMsg["messageCharLimit"]; ok {
 					var parsedLimit int
@@ -556,11 +560,23 @@ func main() {
 					}
 				}
 
-				handshakeResp := map[string]string{
-					"type":    "handshake",
-					"user":    config["username"].(string),
-					"message": "OK",
+				var handshakeResp = map[string]string{}
+
+				if isPasswordProtected {
+					handshakeResp = map[string]string{
+						"type":           "handshake",
+						"user":           config["username"].(string),
+						"message":        "OK",
+						"serverPassword": config["serverPassword"].(string),
+					}
+				} else {
+					handshakeResp = map[string]string{
+						"type":    "handshake",
+						"user":    config["username"].(string),
+						"message": "OK",
+					}
 				}
+
 				jsonResp, err := json.Marshal(handshakeResp)
 				if err != nil {
 					fmt.Println("Error marshaling handshake response:", err)
@@ -571,6 +587,14 @@ func main() {
 					fmt.Println("Error sending handshake response:", err)
 					return
 				}
+			case "alreadyInUse":
+				if jsonMsg["user"] == "server" {
+					fmt.Println("Username already in use, please choose a different one.")
+					os.Stdout.Sync() // flush stdout
+					os.Exit(1)
+					break
+				}
+				addServerMessage(jsonMsg["message"])
 			default:
 				fmt.Println("Received unknown message type:", jsonMsg["type"])
 			}
